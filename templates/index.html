@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>GemsDelivery | 让美味触手可及</title>
+    <link rel="stylesheet" href="/static/index.css">
+</head>
+
+<body>
+    <header>
+        <div class="logo" style="cursor:pointer" id="logoBtn">GemsDelivery</div>
+        <div class="user-nav">
+            <div id="userProfile" style="display:none">
+                <span id="welcomeMsg" style="cursor:pointer">欢迎回来，<strong id="userName"></strong></span>
+                <button class="btn btn-ghost" id="userCenterBtn">个人中心</button>
+                <button class="btn btn-ghost" id="adminPanelBtn" style="display:none; color:var(--accent)">后台管理</button>
+                <button class="btn btn-ghost" id="logout">登出</button>
+            </div>
+        </div>
+    </header>
+
+    <div id="authView" class="auth-container">
+        <h2>开启你的美味之旅</h2>
+        <div class="auth-form">
+            <input type="text" id="username" placeholder="用户名" required>
+            <input type="password" id="password" placeholder="密码" required>
+            <input type="tel" id="phone" placeholder="手机号 (仅限注册用)">
+            <button class="btn btn-primary" id="login">立即登录</button>
+            <button class="btn btn-ghost" id="register">新用户注册</button>
+        </div>
+    </div>
+
+    <div id="mainView" style="display:none">
+        <section class="hero">
+            <div class="hero-content">
+                <h1>别饿肚子，<br>交给我们。</h1>
+                <p>为您精选周边高分外卖，极速送达。</p>
+            </div>
+        </section>
+
+        <div class="app-container">
+            <div class="main-content">
+                <div id="restaurantView">
+                    <div class="search-container animate">
+                        <input type="text" id="restaurantSearch" placeholder="想吃点什么？搜索餐厅或菜品...">
+                    </div>
+
+                    <div class="category-bar animate">
+                        <div class="category-tag active">全部</div>
+                        <div class="category-tag">中式简餐</div>
+                        <div class="category-tag">面点</div>
+                        <div class="category-tag">甜点饮品</div>
+                        <div class="category-tag">烧烤宵夜</div>
+                    </div>
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
+                        <h2 class="section-title" style="margin:0">附近的精选商户</h2>
+                        <div class="filters">
+                            <span style="font-size:0.8rem; color:#888; margin-right:10px">排序:</span>
+                            <select id="sortRestaurants"
+                                style="border:none; background:transparent; font-weight:bold; cursor:pointer; font-family:inherit">
+                                <option value="default">综合排序</option>
+                                <option value="rating">评分最高</option>
+                                <option value="distance">距离最短</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="restaurants" class="restaurant-grid">
+                        <!-- Restaurants dynamic content -->
+                    </div>
+                </div>
+
+                <div id="menuView" style="display:none">
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom: 20px;">
+                        <button class="btn btn-ghost" id="backToRestaurants">← 返回列表</button>
+                        <h2 class="section-title" id="currentRestaurantName" style="margin:0"></h2>
+                    </div>
+                    <div id="menuItems" class="menu-grid">
+                        <!-- Menu items dynamic content -->
+                    </div>
+
+                    <div class="tabs" style="margin-top:40px; border-bottom:1px solid #eee; display:flex; gap:30px">
+                        <div class="tab-item active" id="tabMenu"
+                            style="padding-bottom:10px; cursor:pointer; font-weight:bold; border-bottom:2px solid var(--primary)">
+                            菜品</div>
+                        <div class="tab-item" id="tabReviews" style="padding-bottom:10px; cursor:pointer; color:#888">评价
+                        </div>
+                    </div>
+                    <div id="reviewSection" style="display:none; margin-top:20px">
+                        <div id="addReviewForm"
+                            style="background:white; padding:20px; border-radius:12px; margin-bottom:25px; box-shadow:var(--shadow)">
+                            <h4 style="margin-bottom:15px">写下您的评价</h4>
+                            <div style="display:flex; gap:10px; margin-bottom:10px">
+                                <span>打个分吧：</span>
+                                <select id="reviewRating" style="padding:5px; border-radius:5px; border:1px solid #ddd">
+                                    <option value="5">★★★★★ (5分)</option>
+                                    <option value="4">★★★★☆ (4分)</option>
+                                    <option value="3">★★★☆☆ (3分)</option>
+                                    <option value="2">★★☆☆☆ (2分)</option>
+                                    <option value="1">★☆☆☆☆ (1分)</option>
+                                </select>
+                            </div>
+                            <textarea id="reviewComment" placeholder="说说看，这家的口味如何？"
+                                style="width:100%; height:80px; padding:10px; border-radius:8px; border:1px solid #ddd; margin-bottom:10px; font-family:inherit"></textarea>
+                            <button class="btn btn-primary" id="submitReviewBtn" style="width:100%">提交评价</button>
+                        </div>
+                        <div id="reviewList"></div>
+                    </div>
+                </div>
+
+                <div id="userCenterView" style="display:none" class="profile-container animate">
+                    <div class="profile-header">
+                        <div class="profile-avatar" id="userAvatar">U</div>
+                        <div>
+                            <h2 id="profileName" style="margin-bottom:5px">用户名</h2>
+                            <div style="display:flex; align-items:center; gap:10px">
+                                <p id="profilePhone" style="color:var(--text-muted); margin:0">手机号</p>
+                                <button class="btn btn-ghost" id="editPhoneBtn"
+                                    style="padding:4px 8px; font-size:0.8rem">修改/绑定</button>
+                            </div>
+                            <div id="phoneEditArea" style="display:none; margin-top:10px; gap:5px">
+                                <input type="tel" id="newPhoneInput" placeholder="输入新手机号"
+                                    style="padding:5px; border-radius:5px; border:1px solid #ddd">
+                                <button class="btn btn-primary" id="savePhoneBtn"
+                                    style="padding:5px 10px; font-size:0.8rem">保存</button>
+                                <button class="btn btn-ghost" id="cancelPhoneBtn"
+                                    style="padding:5px 10px; font-size:0.8rem">取消</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <span class="stat-value" id="totalOrdersCount">0</span>
+                            <span class="stat-label">总订单数</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="totalSpent">¥ 0</span>
+                            <span class="stat-label">累计消费</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value">LV.1</span>
+                            <span class="stat-label">会员等级</span>
+                        </div>
+                    </div>
+
+                    <h3 class="section-title">最近订单历史</h3>
+                    <div id="personalHistoryTable" class="order-history">
+                        <!-- Personal history content -->
+                    </div>
+                </div>
+
+                <div id="adminView" style="display:none" class="admin-container animate">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px">
+                        <h2 class="section-title" style="margin:0">全平台数据管理</h2>
+                        <button class="btn btn-ghost" onclick="state.view='home'; updateUIState();">返回首页</button>
+                    </div>
+
+                    <h3 class="section-title">注册用户列表</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>用户名</th>
+                                <th>手机号</th>
+                                <th>权限</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminUsersList"></tbody>
+                    </table>
+
+                    <h3 class="section-title">全平台订单流水</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>订单号</th>
+                                <th>客户</th>
+                                <th>手机</th>
+                                <th>金额</th>
+                                <th>状态</th>
+                                <th>时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminOrdersList"></tbody>
+                    </table>
+                </div>
+
+                <div id="userHistoryView" style="display:none">
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom: 20px;">
+                        <button class="btn btn-ghost" id="backToHome">← 返回首页</button>
+                        <h2 class="section-title" style="margin:0">我的订单历史</h2>
+                    </div>
+                    <div id="historyTable" class="order-history">
+                        <!-- History dynamic content -->
+                    </div>
+                </div>
+            </div>
+
+            <aside class="sidebar">
+                <div class="cart-card">
+                    <h3 style="margin-bottom: 15px;">我的购物车</h3>
+                    <div id="cartItems">
+                        <!-- Cart items dynamic content -->
+                        <div style="text-align:center; color:#888; padding: 20px 0;">购物车是空的</div>
+                    </div>
+                    <div class="total-section">
+                        <span>合计金额</span>
+                        <span class="total-price">¥ <span id="totalPrice">0</span></span>
+                    </div>
+                    <button class="btn btn-primary" id="placeOrder" style="width:100%; margin-top:20px; padding:15px;"
+                        disabled>确认下单</button>
+                    <div id="orderResultContainer" style="margin-top:20px; display:none;">
+                        <!-- Order result/polling info -->
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
