@@ -1,4 +1,6 @@
-# 小型外卖系统
+# personal-Food-Delivery-System (小型外卖系统)
+
+个人练习项目
 
 快速启动说明：
 
