@@ -41,6 +41,15 @@ menus = {
 # SQLite 持久化
 DB_PATH = os.path.join(os.path.dirname(__file__), 'orders.db')
 order_lock = Lock()
+ALLOWED_ORDER_STATUSES = {
+    'pending_payment',
+    'paid',
+    'accepted',
+    'preparing',
+    'out_for_delivery',
+    'delivered',
+    'cancelled'
+}
 
 
 def get_conn():
@@ -83,6 +92,8 @@ def init_db():
     cols = [col[1] for col in c.fetchall()]
     if 'user_id' not in cols:
         c.execute("ALTER TABLE orders ADD COLUMN user_id INTEGER")
+    if 'total_amount' not in cols:
+        c.execute("ALTER TABLE orders ADD COLUMN total_amount REAL DEFAULT 0")
         
     c.execute('''
     CREATE TABLE IF NOT EXISTS items (
@@ -144,24 +155,57 @@ def create_order():
     if not items:
         return jsonify({'error': 'items required'}), 400
 
-    name = customer.get('name', '')
-    phone = customer.get('phone', '')
+    name = customer.get('name', '').strip()
+    phone = customer.get('phone', '').strip()
     user_id = data.get('user_id')
+    if not user_id:
+        return jsonify({'error': 'user_id required'}), 400
+
+    total_amount = 0
+    clean_items = []
+    for it in items:
+        item_id = it.get('id')
+        item_name = (it.get('name') or '').strip()
+        try:
+            price = float(it.get('price', 0))
+            qty = int(it.get('qty', 1))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid item price or qty'}), 400
+
+        if not item_id or not item_name or price <= 0 or qty <= 0:
+            return jsonify({'error': 'invalid items payload'}), 400
+
+        total_amount += price * qty
+        clean_items.append({
+            'id': item_id,
+            'name': item_name,
+            'price': price,
+            'qty': qty
+        })
+
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute('SELECT id FROM users WHERE id=?', (user_id,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': 'invalid user'}), 400
+    conn.close()
+
     created = time.time()
 
     with order_lock:
         conn = get_conn()
         c = conn.cursor()
-        c.execute('INSERT INTO orders (customer_name, customer_phone, status, created_at, user_id) VALUES (?,?,?,?,?)',
-                  (name, phone, 'accepted', created, user_id))
+        c.execute('INSERT INTO orders (customer_name, customer_phone, status, created_at, user_id, total_amount) VALUES (?,?,?,?,?,?)',
+                  (name, phone, 'pending_payment', created, user_id, total_amount))
         oid = c.lastrowid
-        for it in items:
+        for it in clean_items:
             c.execute('INSERT INTO items (order_id, item_id, name, price, qty) VALUES (?,?,?,?,?)',
                       (oid, it.get('id'), it.get('name'), it.get('price'), it.get('qty', 1)))
         conn.commit()
         conn.close()
 
-    return jsonify({'order_id': oid}), 201
+    return jsonify({'order_id': oid, 'status': 'pending_payment', 'total_amount': total_amount}), 201
 
 
 @app.route('/api/orders/<int:oid>')
@@ -178,12 +222,16 @@ def get_order(oid):
     status = row['status']
     elapsed = time.time() - created
     new_status = status
-    if elapsed > 20:
-        new_status = 'delivered'
-    elif elapsed > 10:
-        new_status = 'out_for_delivery'
-    elif elapsed > 2:
-        new_status = 'preparing'
+    auto_flow_status = {'paid', 'accepted', 'preparing', 'out_for_delivery'}
+    if status in auto_flow_status:
+        if elapsed > 20:
+            new_status = 'delivered'
+        elif elapsed > 10:
+            new_status = 'out_for_delivery'
+        elif elapsed > 2:
+            new_status = 'preparing'
+        else:
+            new_status = 'accepted'
 
     if new_status != status:
         c.execute('UPDATE orders SET status=? WHERE id=?', (new_status, oid))
@@ -192,7 +240,7 @@ def get_order(oid):
     c.execute('SELECT item_id, name, price, qty FROM items WHERE order_id=?', (oid,))
     items = [dict(r) for r in c.fetchall()]
     conn.close()
-    return jsonify({'id': oid, 'status': new_status, 'items': items})
+    return jsonify({'id': oid, 'status': new_status, 'items': items, 'total_amount': row['total_amount'] or 0})
 
 
 @app.route('/api/users/register', methods=['POST'])
@@ -245,9 +293,12 @@ def login():
 def update_user():
     data = request.json or {}
     uid = data.get('user_id')
+    operator_id = data.get('operator_id')
     phone = data.get('phone')
-    if not uid or phone is None:
-        return jsonify({'error': 'user_id and phone required'}), 400
+    if not uid or not operator_id or phone is None:
+        return jsonify({'error': 'user_id, operator_id and phone required'}), 400
+    if str(uid) != str(operator_id):
+        return jsonify({'error': 'forbidden'}), 403
     conn = get_conn()
     c = conn.cursor()
     c.execute('UPDATE users SET phone=? WHERE id=?', (phone, uid))
@@ -260,7 +311,7 @@ def update_user():
 def user_orders(uid):
     conn = get_conn()
     c = conn.cursor()
-    c.execute('SELECT id, customer_name, customer_phone, status, created_at FROM orders WHERE user_id=? ORDER BY created_at DESC', (uid,))
+    c.execute('SELECT id, customer_name, customer_phone, status, created_at, total_amount FROM orders WHERE user_id=? ORDER BY created_at DESC', (uid,))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return jsonify(rows)
@@ -310,6 +361,30 @@ def update_order_status():
     if not user or not user['is_admin']:
         conn.close()
         return jsonify({'error': 'forbidden'}), 403
+
+    if status not in ALLOWED_ORDER_STATUSES:
+        conn.close()
+        return jsonify({'error': 'invalid status'}), 400
+
+    c.execute('SELECT status FROM orders WHERE id=?', (oid,))
+    order_row = c.fetchone()
+    if not order_row:
+        conn.close()
+        return jsonify({'error': 'order not found'}), 404
+
+    transitions = {
+        'pending_payment': {'cancelled'},
+        'paid': {'accepted', 'cancelled'},
+        'accepted': {'preparing', 'cancelled'},
+        'preparing': {'out_for_delivery', 'cancelled'},
+        'out_for_delivery': {'delivered'},
+        'delivered': set(),
+        'cancelled': set()
+    }
+    current_status = order_row['status']
+    if status != current_status and status not in transitions.get(current_status, set()):
+        conn.close()
+        return jsonify({'error': f'invalid transition: {current_status} -> {status}'}), 400
         
     c.execute('UPDATE orders SET status=? WHERE id=?', (status, oid))
     conn.commit()
@@ -320,16 +395,40 @@ def update_order_status():
 @app.route('/api/reviews', methods=['POST', 'GET'])
 def manage_reviews():
     if request.method == 'POST':
-        data = request.json
+        data = request.json or {}
+        user_id = data.get('user_id')
+        restaurant_id = data.get('restaurant_id')
+        rating = data.get('rating')
+        comment = (data.get('comment') or '').strip()
+
+        if not user_id or not restaurant_id or rating is None or not comment:
+            return jsonify({'error': 'missing required fields'}), 400
+
+        if restaurant_id not in menus:
+            return jsonify({'error': 'restaurant not found'}), 404
+
+        try:
+            rating = int(rating)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid rating'}), 400
+        if rating < 1 or rating > 5:
+            return jsonify({'error': 'rating must be 1-5'}), 400
+
         conn = get_conn()
         c = conn.cursor()
+        c.execute('SELECT id FROM users WHERE id=?', (user_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'invalid user'}), 400
         c.execute('INSERT INTO reviews (user_id, restaurant_id, rating, comment, created_at) VALUES (?,?,?,?,?)',
-                  (data['user_id'], data['restaurant_id'], data['rating'], data['comment'], time.time()))
+                  (user_id, restaurant_id, rating, comment, time.time()))
         conn.commit()
         conn.close()
         return jsonify({'status': 'success'})
     else:
         rid = request.args.get('restaurant_id')
+        if not rid:
+            return jsonify({'error': 'restaurant_id required'}), 400
         conn = get_conn()
         c = conn.cursor()
         c.execute('SELECT r.*, u.username FROM reviews r JOIN users u ON r.user_id = u.id WHERE r.restaurant_id=? ORDER BY created_at DESC', (rid,))
@@ -342,16 +441,29 @@ def manage_reviews():
 def pay():
     data = request.json or {}
     oid = data.get('order_id')
-    if not oid:
-        return jsonify({'error': 'order_id required'}), 400
+    user_id = data.get('user_id')
+    if not oid or not user_id:
+        return jsonify({'error': 'order_id and user_id required'}), 400
     conn = get_conn()
     c = conn.cursor()
-    c.execute('SELECT id FROM orders WHERE id=?', (oid,))
-    if not c.fetchone():
+    c.execute('SELECT id, user_id, status FROM orders WHERE id=?', (oid,))
+    order = c.fetchone()
+    if not order:
         conn.close()
         return jsonify({'error': 'order not found'}), 404
+    if str(order['user_id']) != str(user_id):
+        conn.close()
+        return jsonify({'error': 'forbidden'}), 403
+    if order['status'] != 'pending_payment':
+        conn.close()
+        return jsonify({'error': f'order cannot be paid in status {order["status"]}'}), 400
     paid_at = time.time()
-    c.execute('INSERT INTO payments (order_id, status, paid_at) VALUES (?,?,?)', (oid, 'paid', paid_at))
+    c.execute('SELECT id FROM payments WHERE order_id=?', (oid,))
+    payment_row = c.fetchone()
+    if payment_row:
+        c.execute('UPDATE payments SET status=?, paid_at=? WHERE order_id=?', ('paid', paid_at, oid))
+    else:
+        c.execute('INSERT INTO payments (order_id, status, paid_at) VALUES (?,?,?)', (oid, 'paid', paid_at))
     c.execute('UPDATE orders SET status=? WHERE id=?', ('paid', oid))
     conn.commit()
     conn.close()

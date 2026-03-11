@@ -124,7 +124,7 @@ async function handleUpdatePhone() {
   const res = await fetch('/api/users/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: state.currentUser.user_id, phone: newPhone })
+    body: JSON.stringify({ user_id: state.currentUser.user_id, operator_id: state.currentUser.user_id, phone: newPhone })
   });
   const data = await res.json();
   if (data.status === 'success') {
@@ -304,6 +304,8 @@ async function handlePlaceOrder() {
           <button class="btn btn-primary" style="width:100%" onclick="payOrder(${result.order_id})">立即支付</button>
         </div>
       `;
+    } else {
+      alert(result.error || '下单失败');
     }
   } catch (e) {
     alert('下单失败');
@@ -317,7 +319,7 @@ async function payOrder(oid) {
   const res = await fetch(api.pay, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ order_id: oid })
+    body: JSON.stringify({ order_id: oid, user_id: state.currentUser.user_id })
   });
   const data = await res.json();
   if (data.status === 'paid') {
@@ -328,6 +330,8 @@ async function payOrder(oid) {
       </div>
     `;
     pollStatus(oid);
+  } else {
+    alert(data.error || '支付失败');
   }
 }
 
@@ -337,6 +341,7 @@ function pollStatus(oid) {
     const res = await fetch(api.order(oid));
     const data = await res.json();
     const statusMap = {
+      'pending_payment': '待支付',
       'paid': '等待商家接单',
       'accepted': '商家已接单',
       'preparing': '厨师正在疯狂备餐中...',
@@ -450,7 +455,8 @@ async function showUserCenter() {
 
   // To get total spent, we'd ideally need an API or fetch each order's items.
   // For now, let's keep it simple or mock it based on orders.
-  el('totalSpent').textContent = `¥ -`;
+  const totalSpent = orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+  el('totalSpent').textContent = `¥ ${totalSpent.toFixed(2)}`;
 
   const container = el('personalHistoryTable');
   if (orders.length === 0) {
@@ -501,12 +507,14 @@ async function showAdminDashboard() {
       <td>#${o.id}</td>
       <td>${o.customer_name}</td>
       <td>${o.customer_phone}</td>
-      <td>¥ ${o.customer_phone.includes('138') ? '?' : '-'}</td> 
+      <td>¥ ${Number(o.total_amount || 0).toFixed(2)}</td>
       <td><span class="status-badge status-${o.status}">${o.status}</span></td>
+      <td>${new Date(o.created_at * 1000).toLocaleString()}</td>
       <td>
         <select onchange="updateOrderStatus(${o.id}, this.value)" style="padding:4px; border-radius:4px; font-size:0.75rem">
           <option value="">更改状态...</option>
           <option value="accepted">接受订单</option>
+          <option value="cancelled">取消订单</option>
           <option value="preparing">正在制作</option>
           <option value="out_for_delivery">配送中</option>
           <option value="delivered">已送达</option>
